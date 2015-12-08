@@ -1,0 +1,15 @@
+#!/bin/bash
+
+function get_log_dir() {
+    NOW=$(date "+%Y-%m-%d-%H:%M:%S")
+    DIR="$1/logs/$TEAM_NAME/$NOW-$TARGET_HOST-$$"
+    mkdir -p "$DIR"
+    rm -f $DIR/../latest
+    ln -rs "$DIR" "$DIR/../latest"
+    echo $DIR
+}
+
+# Log to syslog as well as stderr
+function log() {
+    /usr/bin/logger --stderr --priority local3.info --tag SHURIKEN "$*"
+}

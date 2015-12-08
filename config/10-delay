@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+before() {
+    true;
+}
+
+after() {
+    true;
+}
+
+export -f before
+export -f after

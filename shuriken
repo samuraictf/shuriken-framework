@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+#
+## to be run in daemontools
+## launch via: bash core.sh /path/to/exploits &>> /dev/null
+#  logs via syslog local3.* so you can catch in /var/log/shuriken or something
+
+declare -A teams
+declare -a pid_files
+
+cd "$(readlink -e $(dirname $0))"
+export PWNDACHI_DIR="$PWD"
+
+for config in config/*; do
+    source $config
+done
+
+
+#
+# Team exploitation loop.
+#
+# Exploits all teams with all exploits.
+#
+function exploit_all_teams() {
+for dir in exploits/*/; do
+    export EXPLOIT_NAME=$(basename "$dir")
+
+    # Exploits can be disabled by making them non-executable
+    if [[ ! -x "$dir/exploit" ]]; then
+        echo "$EXPLOIT_NAME - Disabled"
+        continue
+    fi
+
+    for team in "${!teams[@]}"; do
+        export TARGET_HOST=${teams[$team]}
+        export TEAM_NAME="$team"
+
+        # Teams can be disabled by putting the IP address or
+        # team name into a file called 'blacklist' in the exploit
+        # directory.
+        EXPR="($TARGET_HOST)|($TEAM_NAME)"
+
+        if [[ -e "$dir/blacklist" ]] && egrep -q "$EXPR" "$dir/blacklist"; then
+            log "$EXPLOIT_NAME - Blacklisted $team (${teams[$team]})"
+            continue
+        fi 2>/dev/null
+
+        if [[ -e "$dir/whitelist" ]] && ! egrep -q "$EXPR" "$dir/whitelist"; then
+            log "$EXPLOIT_NAME - Whitelisted $team (${teams[$team]})"
+            continue
+        fi 2>/dev/null
+
+        launch_exploit "$dir"
+    done
+done
+}
+
+#
+# Launch a process (specified as the single argument)
+# and keep track of its lifetime with a pid file.
+#
+function launch_exploit() {
+    # Create a temporary directory for the logs and status
+    export LOG_DIR="$(get_log_dir $1)"
+
+    # Keep a copy of the environment it was executed it
+    # so that we can reproduce it
+    >> "$LOG_DIR/run" cat <<EOF
+#!/usr/bin/env bash
+cd $(readlink -e $1)
+export EXPLOIT_NAME="$EXPLOIT_NAME"
+export TARGET_HOST="$TARGET_HOST"
+export TEAM_NAME="$TEAM_NAME"
+export FLAG_HOST="$FLAG_HOST"
+export FLAG_PORT="$FLAG_PORT"
+export FLAG_PROTO="$FLAG_PROTO"
+export FLAG_FIFO="$FLAG_FIFO"
+export TMOUT="$TMOUT"
+export LOG_DIR="$(readlink -e $LOG_DIR)"
+export TMPDIR="$(readlink -e $LOG_DIR)"
+
+export PWNLIB_NOTERM="$PWNLIB_NOTERM"
+export PWNLIB_TIMEOUT="$PWNLIB_TIMEOUT"
+export PWNLIB_RANDOMIZE="$PWNLIB_RANDOMIZE"
+export PWNLIB_MULTIPLY="${PWNLIB_MULTIPLY:=0}"
+export PWNLIB_LOG_LEVEL="$PWNLIB_LOG_LEVEL"
+
+export LISTEN_SSH_CALLBACK_IP="$LISTEN_SSH_CALLBACK_IP"
+export LISTEN_SSH_SERVER="$LISTEN_SSH_SERVER"
+export LISTEN_SSH_USER="$LISTEN_SSH_USER"
+
+exec "$PWNDACHI_DIR/bin/alarm" $(($TMOUT * 10)) ./exploit
+EOF
+    chmod +x "$LOG_DIR/run"
+
+    # Launch the exploit after a random delay
+    (
+        before
+        exec "$LOG_DIR/run" \
+            0<"/dev/null" \
+            1>"$LOG_DIR/stdout" \
+            2>"$LOG_DIR/stderr"
+    )&
+    PID=$!
+
+    # Log the start of the exploit and its log file
+    log "$EXPLOIT_NAME - Started [$PID] $TEAM_NAME ($TARGET_HOST) $LOG_DIR"
+
+    # Create the PID file and note the start of the process
+    echo "$PID" > "${LOG_DIR}/pid"
+
+    # Create a child shell which will wait on the PID file
+    (   # Wait for the process to die (or be killed)
+        while kill -0 $PID 2>/dev/null; do
+            sleep 1
+        done
+
+        echo "$EXPLOIT_NAME done"
+
+        # If there is no status file, the process exited cleanly
+        if [[ ! -e "$LOG_DIR/status" ]]; then
+            echo "finished $(date)" >> "$LOG_DIR/status"
+            log "$EXPLOIT_NAME - Finished [$PID] $TEAM_NAME ($TARGET_HOST)"
+        fi
+        rm -f "$LOG_DIR/pid"
+        after
+    ) &
+
+    pid_files+=("$LOG_DIR/pid")
+}
+
+
+
+#
+# Waiting loop.  Wait for all of the processes to exit, up
+# to a timeout.
+#
+function wait_for_processes() {
+for i in $(seq "$TMOUT"); do
+    sleep 1
+
+    for pid_file in "${pid_files[@]}"; do
+        # If the PID file still exists, the process is alive.
+        [[ -e "$pid_file" ]] && continue
+
+        # If the process died, remove the PID file
+        del=("$pid_file")
+        pid_files=(${pid_files[@]/$del})
+    done
+
+    if [[ "${#pid_files[@]}" = 0 ]]; then
+        break
+    fi
+done
+}
+
+#
+# Clean-up all running processes by killing them
+#
+function kill_all_processes() {
+for pid_file in "${pid_files[@]}"; do
+    log   "$EXPLOIT_NAME - Terminating [$PID] $TEAM_NAME ($TARGET_HOST)"
+    echo "terminated $(date)" >> "$LOG_DIR/status"
+
+    # Send SIGTERM to give it a warning
+    kill -SIGTERM $(cat "$pid_file")
+    sleep 5
+
+    # Actually kill it, if it's still alive
+    if [[ -e "$pid_file" ]]; then
+        kill -SIGKILL $(cat "$pid_file") 2>/dev/null
+        log   "$EXPLOIT_NAME - Killed [$PID] $TEAM_NAME ($TARGET_HOST)"
+        echo "killed $(date)" >> "$LOG_DIR/status"
+    fi
+done
+}
+
+log "exploit loop started in $PWD"
+exploit_all_teams
+log "waiting for processes to exit"
+wait_for_processes
+log "killing lingering processes"
+kill_all_processes
+log "exploit loop finished"

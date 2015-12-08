@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+#### WARNING ####
+#
+# The following does not work with copy-paste
+#
+#################
+
+LISTEN_SSH_CALLBACK_IPS=()
+
+for i in $(seq 64 128); do
+	LISTEN_SSH_CALLBACK_IPS+=("10.5.3.$i")
+done
+
+LISTEN_SSH_CALLBACK_IP=${LISTEN_SSH_CALLBACK_IPS[$RANDOM % ${#LISTEN_SSH_CALLBACK_IPS[@]} ]}
+
+export LISTEN_SSH_CALLBACK_IP

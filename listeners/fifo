@@ -1,0 +1,16 @@
+#!/bin/bash
+#
+# Reads flags from a fifo, and forwards them to the TCP listener.
+# Useful for situations where networking is annoying or adds complexity,
+# and just writing into a file is easier.
+#
+FIFO=${1:-flag-fifo}
+HOST=${2:-127.0.0.1}
+PORT=${3:-1337}
+
+rm -f $FIFO
+mkfifo -m 0600 $FIFO
+
+while [[ -p $FIFO ]]; do
+    cat $FIFO
+done

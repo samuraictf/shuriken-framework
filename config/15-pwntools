@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+# Disable all pretty colors and animations, just use plain text.
+export PWNLIB_NOTERM=1
+
+# All I/O operations should time out after 5 minutes unless otherwise specified.
+export PWNLIB_TIMEOUT=$((60*5))
+
+# Randomize everything
+export PWNLIB_RANDOMIZE=1
+
+# Log in a verbose manner
+export PWNLIB_LOG_LEVEL=debug
+

@@ -1,0 +1,2 @@
+#!/bin/sh
+export TMOUT="${TMOUT:-30}"

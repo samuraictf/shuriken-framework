@@ -1,0 +1,5 @@
+#!/bin/sh
+export FLAG_HOST=${FLAG_HOST:-flag-submission-server}
+export FLAG_PORT=${FLAG_PORT:-31337}
+export FLAG_PROTO=${FLAG_PROTO:-tcp}
+export FLAG_FIFO=$(readlink -e ${FLAG_FIFO:-flag-fifo})
